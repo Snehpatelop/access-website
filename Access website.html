@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Server Access Scheduler</title>
+    <style>
+        :root {
+            --primary-color: #3498db;
+            --primary-dark: #2980b9;
+            --success-color: #2ecc71;
+            --danger-color: #e74c3c;
+            --bg-color: #ecf0f1;
+            --card-bg: #ffffff;
+            --text-primary: #2c3e50;
+            --border-color: #dfe6e9;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            line-height: 1.6;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: var(--card-bg);
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        h1, h2 {
+            color: var(--primary-color);
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+
+        input, select {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            margin-bottom: 10px;
+        }
+
+        .time-period-selector {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        .time-slots {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+            gap: 10px;
+            margin: 20px 0;
+        }
+
+        .time-slot {
+            padding: 10px;
+            text-align: center;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        .time-slot.available {
+            background-color: var(--success-color);
+            color: white;
+        }
+
+        .time-slot.booked {
+            background-color: var(--danger-color);
+            color: white;
+            cursor: not-allowed;
+        }
+
+        .time-slot.selected {
+            background-color: var(--primary-color);
+            color: white;
+        }
+
+        button {
+            background-color: var(--primary-color);
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            width: 100%;
+            font-size: 16px;
+        }
+
+        button:hover {
+            background-color: var(--primary-dark);
+        }
+
+        #bookedSlotsList {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid var(--border-color);
+        }
+
+        #bookedSlotsDisplay {
+            list-style: none;
+        }
+
+        #bookedSlotsDisplay li {
+            padding: 10px;
+            margin: 5px 0;
+            background: #f8f9fa;
+            border-radius: 4px;
+            border-left: 4px solid var(--primary-color);
+        }
+
+        .admin-controls {
+            margin-top: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 4px;
+        }
+
+        .error-message {
+            color: var(--danger-color);
+            margin-top: 10px;
+        }
+
+        .success-message {
+            color: var(--success-color);
+            margin-top: 10px;
+        }
+
+        @media (max-width: 600px) {
+            .time-period-selector {
+                grid-template-columns: 1fr;
+            }
+
+            .container {
+                padding: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Server Access Scheduler</h1>
+        
+        <form id="scheduleForm">
+            <div class="form-group">
+                <label for="name">Name:</label>
+                <input type="text" id="name" required placeholder="Enter your name">
+            </div>
+            
+            <div class="form-group">
+                <label for="date">Date:</label>
+                <input type="date" id="date" required>
+            </div>
+
+            <div class="form-group">
+                <label>Time Period:</label>
+                <div class="time-period-selector">
+                    <select id="startTime" required>
+                        <option value="">Start Time</option>
+                    </select>
+                    <select id="endTime" required>
+                        <option value="">End Time</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label>Available Time Slots:</label>
+                <div id="timeSlots" class="time-slots"></div>
+            </div>
+            
+            <button type="submit">Book Slot</button>
+        </form>
+
+        <div id="bookedSlotsList">
+            <h2>Booked Slots</h2>
+            <ul id="bookedSlotsDisplay"></ul>
+        </div>
+
+        <div class="admin-controls">
+            <h2>Admin Controls</h2>
+            <input type="password" id="adminPassword" placeholder="Enter admin password">
+            <button id="clearSlots">Clear All Booked Slots</button>
+            <div id="adminMessage"></div>
+        </div>
+    </div>
+
+    <script>
+        const form = document.getElementById('scheduleForm');
+        const timeSlotsContainer = document.getElementById('timeSlots');
+        const bookedSlotsDisplay = document.getElementById('bookedSlotsDisplay');
+        const dateInput = document.getElementById('date');
+        const startTimeSelect = document.getElementById('startTime');
+        const endTimeSelect = document.getElementById('endTime');
+        const adminPassword = document.getElementById('adminPassword');
+        const clearSlotsButton = document.getElementById('clearSlots');
+        const adminMessage = document.getElementById('adminMessage');
+
+        const ADMIN_PASSWORD = "admin123";
+        let bookedSlots = JSON.parse(localStorage.getItem('bookedSlots')) || [];
+
+        function cleanupPastBookings() {
+            const currentDate = new Date();
+            currentDate.setHours(0, 0, 0, 0);
+            
+            bookedSlots = bookedSlots.filter(slot => {
+                const slotDate = new Date(slot.date);
+                slotDate.setHours(0, 0, 0, 0);
+                return slotDate >= currentDate;
+            });
+            
+            localStorage.setItem('bookedSlots', JSON.stringify(bookedSlots));
+        }
+
+        function setMinDate() {
+            const today = new Date().toISOString().split('T')[0];
+            dateInput.min = today;
+            if (!dateInput.value) {
+                dateInput.value = today;
+            }
+        }
+
+        function generateTimeOptions() {
+            startTimeSelect.innerHTML = '<option value="">Start Time</option>';
+            endTimeSelect.innerHTML = '<option value="">End Time</option>';
+            
+            for (let hour = 9; hour <= 17; hour++) {
+                for (let minute of ['00', '30']) {
+                    const time = `${hour.toString().padStart(2, '0')}:${minute}`;
+                    startTimeSelect.add(new Option(time, time));
+                    endTimeSelect.add(new Option(time, time));
+                }
+            }
+        }
+
+        function generateTimeSlots() {
+            const start = startTimeSelect.value;
+            const end = endTimeSelect.value;
+            
+            if (!start || !end) return;
+            
+            timeSlotsContainer.innerHTML = '';
+            const [startHour, startMinute] = start.split(':').map(Number);
+            const [endHour, endMinute] = end.split(':').map(Number);
+            
+            const startTime = startHour * 60 + startMinute;
+            const endTime = endHour * 60 + endMinute;
+            
+            for (let time = startTime; time <= endTime; time += 30) {
+                const hour = Math.floor(time / 60);
+                const minute = time % 60;
+                const timeSlot = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+                
+                const slotElement = document.createElement('div');
+                slotElement.classList.add('time-slot');
+                slotElement.textContent = timeSlot;
+                
+                const isBooked = bookedSlots.some(
+                    slot => slot.date === dateInput.value && slot.time === timeSlot
+                );
+                
+                if (isBooked) {
+                    slotElement.classList.add('booked');
+                } else {
+                    slotElement.classList.add('available');
+                    slotElement.addEventListener('click', () => selectTimeSlot(timeSlot));
+                }
+                
+                timeSlotsContainer.appendChild(slotElement);
+            }
+        }
+
+        function selectTimeSlot(slot) {
+            const selectedSlots = document.querySelectorAll('.time-slot.selected');
+            selectedSlots.forEach(el => el.classList.remove('selected'));
+            
+            const clickedSlot = Array.from(timeSlotsContainer.children)
+                .find(el => el.textContent === slot);
+            
+            if (clickedSlot && !clickedSlot.classList.contains('booked')) {
+                clickedSlot.classList.add('selected');
+            }
+        }
+
+        function updateBookedSlots() {
+            bookedSlotsDisplay.innerHTML = '';
+            bookedSlots.forEach(slot => {
+                const li = document.createElement('li');
+                li.textContent = `${slot.name} - ${slot.date} at ${slot.time}`;
+                bookedSlotsDisplay.appendChild(li);
+            });
+        }
+
+        form.addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const name = document.getElementById('name').value;
+            const date = dateInput.value;
+            const selectedSlot = document.querySelector('.time-slot.selected');
+            
+            if (!selectedSlot) {
+                alert('Please select a time slot');
+                return;
+            }
+            
+            const newBooking = {
+                name,
+                date,
+                time: selectedSlot.textContent
+            };
+            
+            bookedSlots.push(newBooking);
+            localStorage.setItem('bookedSlots', JSON.stringify(bookedSlots));
+            
+            updateBookedSlots();
+            form.reset();
+            setMinDate();
+            generateTimeOptions();
+            timeSlotsContainer.innerHTML = '';
+        });
+
+        dateInput.addEventListener('change', function() {
+            generateTimeOptions();
+            generateTimeSlots();
+        });
+
+        startTimeSelect.addEventListener('change', generateTimeSlots);
+        endTimeSelect.addEventListener('change', generateTimeSlots);
+
+        clearSlotsButton.addEventListener('click', function() {
+            if (adminPassword.value === ADMIN_PASSWORD) {
+                bookedSlots = [];
+                localStorage.setItem('bookedSlots', JSON.stringify(bookedSlots));
+                updateBookedSlots();
+                generateTimeOptions();
+                adminMessage.textContent = "All slots cleared successfully!";
+                adminMessage.className = "success-message";
+                adminPassword.value = "";
+                timeSlotsContainer.innerHTML = '';
+            } else {
+                adminMessage.textContent = "Incorrect password!";
+                adminMessage.className = "error-message";
+            }
+        });
+
+        // Initialize
+        cleanupPastBookings();
+        setMinDate();
+        generateTimeOptions();
+        updateBookedSlots();
+    </script>
+</body>
+</html>
